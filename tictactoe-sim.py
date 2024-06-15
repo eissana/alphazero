@@ -19,6 +19,9 @@ class TicTacToe(object):
         self.board_size = 3
         self.first_player = 1
 
+    def __repr__(self):
+        return self.__class__.__name__
+
     def init_state(self):
         return np.zeros((self.board_size, self.board_size), dtype=np.int8)
 

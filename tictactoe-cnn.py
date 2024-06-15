@@ -105,6 +105,9 @@ class TicTacToe(object):
         self.board_size = 3
         self.first_player = 1
 
+    def __repr__(self):
+        return self.__class__.__name__
+
     def init_state(self):
         return np.zeros((self.board_size, self.board_size), dtype=np.int8)
 
@@ -170,7 +173,7 @@ if __name__ == "__main__":
         num_blocks=params["num_blocks"],
         params=params).to(device=params["device"])
 
-    check_point = torch.load(f"./models/model_{params["num_epochs"]}.pt")
+    check_point = torch.load(f"./models/{t3}_{params["num_epochs"]}.pt")
     model.load_state_dict(check_point["model"])
 
     model.eval()
