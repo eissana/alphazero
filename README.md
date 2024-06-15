@@ -6,3 +6,4 @@ In this repo we implement algorithms for learning how play certain games like Ti
 2. Activate the environment: `source venv/bin/activate` (to deactivate just run `deactivate`)
 3. Install requirements: `pip install -r requirements.txt`
 4. Run simulation-based TicTacToe model: `python -m tictactoe-sim`
+5. Run CNN-based TicTacToe model: `python -m tictactoe-cnn`
