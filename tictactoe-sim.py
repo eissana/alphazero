@@ -15,9 +15,9 @@ def print_state(state):
 
 
 class TicTacToe(object):
-    def __init__(self, board_size=3, first_player=1):
-        self.board_size = board_size
-        self.first_player = first_player
+    def __init__(self):
+        self.board_size = 3
+        self.first_player = 1
 
     def init_state(self):
         return np.zeros((self.board_size, self.board_size), dtype=np.int8)
@@ -33,11 +33,16 @@ class TicTacToe(object):
     def opponent(self, player):
         return -player
 
-    def opponent_value(self, value):
-        return -value
+    def opponent_reward(self, reward):
+        return -reward
 
-    def change_perspective(self, state):
-        return -state
+    def neutral_perspective(self, state, player):
+        """
+        Perspective of the first (default) player.
+        For player 1, the state is unchaged while player -1's perspective
+        of the state is reversed so as if player 1 sees the state.
+        """
+        return player * state
 
     def won(self, state, action):
         if action is None:
@@ -45,20 +50,24 @@ class TicTacToe(object):
         row, col = self.coord(action)
         player = state[row, col]
 
-        row_full = np.sum(state[row, :]) == player * self.board_size
-        col_full = np.sum(state[:, col]) == player * self.board_size
-        diag_full = np.sum(np.diag(state)) == player * self.board_size
-        offdiag_full = np.sum(np.diag(np.fliplr(state))) == player * self.board_size
+        win_sum = player * self.board_size
+        row_win = np.sum(state[row, :]) == win_sum
+        col_win = np.sum(state[:, col]) == win_sum
+        diag_win = np.sum(np.diag(state)) == win_sum
+        offdiag_win = np.sum(np.diag(np.fliplr(state))) == win_sum
 
-        return row_full or col_full or diag_full or offdiag_full
+        return row_win or col_win or diag_win or offdiag_win
 
     def available_actions(self, state):
         return np.where(state.reshape(-1) == 0)[0]
 
     def is_over(self, state, action):
+        """
+        The game is over when the player wins or there is no mover left.
+        """
         return self.won(state, action) or (np.sum(state == 0) == 0)
 
-    def result(self, won):
+    def reward(self, won):
         return 1 if won else 0
 
 
@@ -76,8 +85,8 @@ class Node(object):
         self.children = []
         self.available_actions = (state.reshape(-1) == 0).astype(np.int8)
 
-        # reward value for the current state which can be positive or negative.
-        self.value_sum = 0
+        # reward reward for the current state which can be positive or negative.
+        self.reward_sum = 0
         # number of visits at this node.
         self.visit_count = 0
 
@@ -89,15 +98,16 @@ class Node(object):
         """
         return (np.sum(self.available_actions) == 0) and len(self.children) > 0
 
-    def expected_reward(self):
-        return self.value_sum / self.visit_count
+    def expected_reward(self, child):
+        return -child.reward_sum / child.visit_count
 
     def ucb(self, child):
         """
         Computes the Upper Confidence Bound (UCB).
         """
+        exploratin_factor = self.params["exploratin_factor"]
         exploration = np.sqrt(np.log(self.visit_count) / child.visit_count)
-        return child.expected_reward() + self.params["exploratin_factor"] * exploration
+        return self.expected_reward(child) + exploratin_factor * exploration
 
     def select(self):
         k = np.argmax([self.ucb(child) for child in self.children])
@@ -108,11 +118,11 @@ class Node(object):
         # mark as explored so it won't be available anymore.
         self.available_actions[action] = 0
 
-        # we can assume this player is the player 1, without loss of generality.
-        child_state = self.game.next_state(
-            self.state.copy(), action, player=self.game.first_player
-        )
-        child_state = self.game.change_perspective(child_state)
+        player = self.game.first_player
+        other_player = self.game.opponent(player)
+        # we assume this player is always the player 1, without loss of generality.
+        child_state = self.game.next_state(self.state.copy(), action, player=player)
+        child_state = self.game.neutral_perspective(child_state, other_player)
         child_node = Node(self.game, child_state, self.params, self, action)
 
         self.children.append(child_node)
@@ -131,21 +141,24 @@ class Node(object):
             state = self.game.next_state(state, parent_action, player)
             player = self.game.opponent(player)
 
-        result = self.game.result(self.game.won(state, parent_action))
+        reward = self.game.reward(self.game.won(state, parent_action))
+        # `player` took `parent_action` which resulted in winning `state` so the winner is the
+        # other player and we need to rever reward.
+        reward = self.game.opponent_reward(reward)
         return (
-            result
+            reward
             if player == self.game.first_player
-            else self.game.opponent_value(result)
+            else self.game.opponent_reward(reward)
         )
 
     def backward(self, reward):
         """
         Backpropagate reward and visit counts from the node to the root.
         """
-        self.value_sum += reward
+        self.reward_sum += reward
         self.visit_count += 1
         # parent node is the opponent of the child node.
-        reward = self.game.opponent_value(reward)
+        reward = self.game.opponent_reward(reward)
         if self.parent is not None:
             self.parent.backward(reward)
 
@@ -161,18 +174,18 @@ class MCTS(object):
         self.game = game
         self.params = params
 
-    def best_action(self, state, parent_action):
+    def best_policy(self, state, parent_action):
         num_iters = self.params["num_iters"]
         root = Node(self.game, state, self.params, parent_action=parent_action)
 
         for _ in range(num_iters):
-            # starting from the root, select a child with highest UCB if it's fully expanded,
-            # or expand it.
+            # starting from the root, select a child with the highest UCB if
+            # it's fully expanded, or expand it.
             node = self.find_node(root)
             reward = node.simulate()
             node.backward(reward)
 
-        return self.action_distibution(root)
+        return self.compute_policy(root)
 
     def find_node(self, root):
         """
@@ -188,7 +201,7 @@ class MCTS(object):
             node = node.select()
         return node
 
-    def action_distibution(self, root):
+    def compute_policy(self, root):
         """
         Returns the probability distribution of the visit counts.
         """
@@ -200,7 +213,7 @@ class MCTS(object):
 
 
 if __name__ == "__main__":
-    t3 = TicTacToe(first_player=1)
+    t3 = TicTacToe()
     state = t3.init_state()
     player = t3.first_player
 
@@ -222,15 +235,15 @@ if __name__ == "__main__":
             action = int(action)
         else:
             # mcts sees the state from the perspective of player 1.
-            # since it's player -1 now, we change the perspective.
-            opponent_state = t3.change_perspective(state)
-            action_dist = mcts.best_action(opponent_state, action)
-            action = np.argmax(action_dist)
+            # If it's player -1, we change the perspective.
+            neutral_state = t3.neutral_perspective(state, player)
+            policy = mcts.best_policy(neutral_state, action)
+            action = np.argmax(policy)
 
         state = t3.next_state(state, action, player)
 
         if t3.won(state, action):
-            print(state)
+            print_state(state)
             print(f"player {players[player]} won!")
             break
 
