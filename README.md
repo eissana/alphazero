@@ -7,3 +7,4 @@ In this repo we implement algorithms for learning how play certain games like Ti
 3. Install requirements: `pip install -r requirements.txt`
 4. Run simulation-based TicTacToe model: `python -m tictactoe-sim`
 5. Run CNN-based TicTacToe model: `python -m tictactoe-cnn`
+6. Run simulation-based Connect4 model: `python -m connect4-sim`
