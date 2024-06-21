@@ -3,7 +3,7 @@ import numpy as np
 players = {1: "B", -1: "R", 0: "."}
 
 params = {
-    "exploration_factor": np.sqrt(2),
+    "exploration_factor": 2**0.5,
     "num_iters": 1000,
 }
 
@@ -85,11 +85,20 @@ class Connect4(object):
 
         return False
 
-    def is_over(self, state, action):
-        return self.won(state, action) or (np.sum(state[0, :] == 0) == 0)
+    def no_move_left(self, state):
+        return np.sum(state[0, :] == 0) == 0
 
-    def reward(self, won):
-        return 1 if won else 0
+    def is_over(self, state, action):
+        return self.won(state, action) or self.no_move_left(state)
+
+    def reward(self, final_state):
+        """
+        Call this when game is over. The given state must be a final state:
+        The current player wins or no move to make.
+        Returns 1 when the current player wins and 0 when it's draw
+        (no moves available).
+        """
+        return 0 if self.no_move_left(final_state) else 1
 
 
 class Node(object):
@@ -114,15 +123,14 @@ class Node(object):
         Computes the Upper Confidence Bound (UCB).
         """
         exploration_factor = self.params["exploration_factor"]
-        exploration = np.sqrt(np.log(self.visit_count) / child.visit_count)
+        exploration = (np.log(self.visit_count) / child.visit_count) ** 0.5
         return self.expected_reward(child) + exploration_factor * exploration
 
     def is_fully_expanded(self):
         return len(self.children) > 0 and (np.sum(self.available_actions) == 0)
 
     def select(self):
-        k = np.argmax([self.ucb(child) for child in self.children])
-        return self.children[k]
+        return max(self.children, key=self.ucb)
 
     def expand(self):
         action = np.random.choice(np.where(self.available_actions == 1)[0])
@@ -149,8 +157,7 @@ class Node(object):
             state = self.game.next_state(state, parent_action, player)
             player = self.game.opponent(player)
 
-        won = self.game.won(state, parent_action)
-        reward = self.game.reward(won)
+        reward = self.game.reward(state)
         # `player` took `parent_action` which resulted in winning `state` so the winner is the
         # other player and we need to rever reward.
         reward = self.game.opponent_reward(reward)
@@ -161,12 +168,12 @@ class Node(object):
         )
 
     def backward(self, reward):
-        self.reward_sum += reward
-        self.visit_count += 1
-
-        reward = self.game.opponent_reward(reward)
-        if self.parent is not None:
-            self.parent.backward(reward)
+        node = self
+        while node is not None:
+            node.reward_sum += reward
+            node.visit_count += 1
+            node = node.parent
+            reward = self.game.opponent_reward(reward)
 
 
 class MCTS(object):
@@ -216,10 +223,6 @@ if __name__ == "__main__":
         available_actions = c4.available_actions(state)
         print(f"available actions: {c4.available_actions(state)}")
 
-        if len(available_actions) == 0:
-            print("draw!")
-            break
-
         if player == c4.first_player:
             action = int(input("provide a valid move: "))
         else:
@@ -229,9 +232,12 @@ if __name__ == "__main__":
 
         state = c4.next_state(state, action, player)
 
-        if c4.won(state, action):
+        if c4.is_over(state, action):
             print_state(state)
-            print(f"player {players[player]} won!")
+            if c4.no_move_left(state):
+                print("draw!")
+            else:
+                print(f"player {players[player]} won!")
             break
 
         player = c4.opponent(player)
